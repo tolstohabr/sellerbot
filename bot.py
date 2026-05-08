@@ -1,12 +1,13 @@
 import socks
 import asyncio
 from telethon import TelegramClient, events
+from telethon.tl.functions.messages import ImportChatInviteRequest
 from telegram import Bot
 import os
 import re
 import time
 import logging
-from config import API_ID, API_HASH, BOT_TOKEN, TARGET_CHANNEL, PROXY, CHANNELS
+from config import API_ID, API_HASH, BOT_TOKEN, TARGET_CHANNEL, PROXY, CHANNELS, PRIVATE_CHANNELS
 
 # НАСТРОЙКА ЛОГИРОВАНИЯ
 logging.basicConfig(
@@ -56,9 +57,38 @@ def escape_md(text: str) -> str:
 # ВРЕМЯ СТАРТА
 START_TIME = time.time()
 
-@client.on(events.NewMessage(chats=CHANNELS))
+# множество для фильтрации повторных сообщений
+sent_messages = set()
+
+async def get_channels():
+    channels = []
+
+    # публичные
+    for ch in CHANNELS:
+        entity = await client.get_entity(ch)
+        channels.append(entity)
+
+    # приватные
+    for link in PRIVATE_CHANNELS:
+        try:
+            # Проверяем через get_entity, если уже участник
+            entity = await client.get_entity(link)
+            channels.append(entity)
+        except Exception:
+            # Если не участник, делаем импорт
+            try:
+                entity = await client(ImportChatInviteRequest(link.split('+')[-1]))
+                channels.append(entity.chats[0])
+            except Exception as e:
+                logging.error(f"Не удалось подключиться к приватному каналу {link}: {e}")
+
+    return channels
+
 async def handler(event):
     if event.message.date.timestamp() < START_TIME:
+        return
+
+    if event.message.id in sent_messages:
         return
 
     text = event.message.text
@@ -69,14 +99,12 @@ async def handler(event):
     if KEYWORD.lower() not in text_lower:
         return
 
-    matched_model = None
-    for model in models:
-        if model in text_lower:
-            matched_model = model
-            break
-
+    matched_model = next((m for m in models if m in text_lower), None)
     if not matched_model:
         return
+
+    # Добавляем ID в множество, чтобы не дублировать
+    sent_messages.add(event.message.id)
 
     chat = await event.get_chat()
     sender = await event.get_sender()
@@ -90,7 +118,7 @@ async def handler(event):
         f"*Отправитель:* {escape_md(sender_info)}\n"
         f"*Модель:* {escape_md(matched_model)}\n"
         f"*Сообщение:*\n_{escape_md(text)}_\n"
-        f"🔗 {escape_md(message_link)}"
+        f"{escape_md(message_link)}"
     )
 
     await bot.send_message(
@@ -106,6 +134,10 @@ async def main():
     me = await client.get_me()
     logging.info(f"Вошел как: {me.first_name}")
     logging.info("Бот запущен... Ожидаем сообщения...")
+
+    all_channels = await get_channels()
+    client.add_event_handler(handler, events.NewMessage(chats=all_channels))
+
     await client.run_until_disconnected()
 
 if __name__ == "__main__":
