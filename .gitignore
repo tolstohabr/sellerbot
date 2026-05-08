@@ -1,0 +1,15 @@
+.idea/
+.venv/
+
+*.log
+*.session
+*.session-journal
+
+config.py
+models.txt
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
