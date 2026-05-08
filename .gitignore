@@ -1,9 +1,12 @@
 .idea/
 .venv/
+dist/
+build/
 
 *.log
 *.session
 *.session-journal
+*.spec
 
 config.py
 models.txt
